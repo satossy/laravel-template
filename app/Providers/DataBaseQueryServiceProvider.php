@@ -2,58 +2,37 @@
 
 namespace App\Providers;
 
-use DB;
-use App;
-use Log;
-use Event;
-use DateTime;
 use Carbon\Carbon;
-use Illuminate\Support\ServiceProvider;
+use DateTime;
 use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Database\Events\TransactionCommitted;
 use Illuminate\Database\Events\TransactionRolledBack;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\ServiceProvider;
 
 class DataBaseQueryServiceProvider extends ServiceProvider
 {
-    const ENABLE_ENVIRONMENT = [
-        'local',
-        'development',
-    ];
-
-    /**
-     * Bootstrap services.
-     *
-     * @return void
-     */
-    public function boot(): void
-    {
-        //
-    }
-
     /**
      * Register services.
-     *
-     * @return void
      */
     public function register(): void
     {
-        if (App::runningInConsole()) {
+        if (config('logging.sql.enable') === false) {
             return;
         }
 
-        if (config('app.debug') === false) {
-            return;
-        }
-
-        if (in_array(App::environment(), self::ENABLE_ENVIRONMENT, true) === false) {
-            return;
-        }
-
-        DB::listen(function ($query) {
+        DB::listen(function ($query): void {
             $sql = $query->sql;
+
             foreach ($query->bindings as $binding) {
                 if (is_string($binding)) {
                     $binding = "'{$binding}'";
+                } elseif (is_bool($binding)) {
+                    $binding = $binding ? '1' : '0';
+                } elseif (is_int($binding)) {
+                    $binding = (string) $binding;
                 } elseif ($binding === null) {
                     $binding = 'NULL';
                 } elseif ($binding instanceof Carbon) {
@@ -62,22 +41,22 @@ class DataBaseQueryServiceProvider extends ServiceProvider
                     $binding = "'{$binding->format('Y-m-d H:i:s')}'";
                 }
 
-                $sql = preg_replace("/\?/", $binding, $sql, 1);
+                $sql = preg_replace('/\\?/', $binding, $sql, 1);
             }
 
-            Log::debug('SQL', ['sql' => $sql, 'time' => "$query->time ms"]);
+            Log::channel("sql")->debug('SQL', ['sql' => $sql, 'time' => "{$query->time} ms"]);
         });
 
-        Event::listen(TransactionBeginning::class, function (TransactionBeginning $event) {
-            Log::debug('START TRANSACTION');
+        Event::listen(TransactionBeginning::class, function (TransactionBeginning $event): void {
+            Log::channel("sql")->debug('START TRANSACTION');
         });
 
-        Event::listen(TransactionCommitted::class, function (TransactionCommitted $event) {
-            Log::debug('COMMIT');
+        Event::listen(TransactionCommitted::class, function (TransactionCommitted $event): void {
+            Log::channel("sql")->debug('COMMIT');
         });
 
-        Event::listen(TransactionRolledBack::class, function (TransactionRolledBack $event) {
-            Log::debug('ROLLBACK');
+        Event::listen(TransactionRolledBack::class, function (TransactionRolledBack $event): void {
+            Log::channel("sql")->debug('ROLLBACK');
         });
     }
 }
